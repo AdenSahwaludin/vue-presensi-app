@@ -114,6 +114,17 @@
                 </ol>
               </div>
               
+              <div class="bg-blue-50 border border-blue-200 rounded p-3">
+                <h4 class="font-medium text-blue-800 mb-1">Camera Issues on HTTPS:</h4>
+                <ol class="list-decimal list-inside text-blue-700 space-y-1">
+                  <li>Make sure you're on <strong>HTTPS</strong> (not HTTP)</li>
+                  <li>Click <strong>camera icon</strong> in browser address bar</li>
+                  <li>Select <strong>"Allow"</strong> for camera permission</li>
+                  <li>Refresh page if permission was previously denied</li>
+                  <li>Try <strong>"Test Camera"</strong> button above</li>
+                </ol>
+              </div>
+              
               <div class="bg-green-50 border border-green-200 rounded p-3">
                 <h4 class="font-medium text-green-800 mb-1">Test Credentials:</h4>
                 <div class="text-green-700 space-y-1">
@@ -147,6 +158,13 @@
                 class="bg-orange-600 text-white px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-50"
               >
                 Create Admin User
+              </button>
+              <button
+                @click="testCamera"
+                :disabled="testing"
+                class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 disabled:opacity-50"
+              >
+                Test Camera
               </button>
               <button
                 @click="testCheckIn"
@@ -187,6 +205,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { usePresensiStore } from '@/stores/presensi'
 import { checkDatabaseSetup } from '@/utils/setup-database'
+import { cameraService } from '@/services/camera'
 
 const authStore = useAuthStore()
 const presensiStore = usePresensiStore()
@@ -477,6 +496,78 @@ async function setupDatabase() {
   } catch (error: any) {
     addLog(`❌ Database setup failed: ${error.message}`, 'error')
     addLog('💡 Please run the SQL script manually in Supabase Dashboard → SQL Editor', 'info')
+  }
+  
+  testing.value = false
+}
+
+async function testCamera() {
+  testing.value = true
+  addLog('🎥 Testing camera functionality...', 'info')
+  
+  try {
+    // Check if running on HTTPS
+    const isSecure = window.isSecureContext || location.protocol === 'https:' || 
+                    location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    
+    addLog(`🔒 Secure context: ${isSecure ? 'Yes' : 'No'}`, isSecure ? 'success' : 'error')
+    addLog(`🌐 Current protocol: ${location.protocol}`, 'info')
+    addLog(`🏠 Current host: ${location.hostname}`, 'info')
+    
+    if (!isSecure) {
+      addLog('❌ Camera requires HTTPS or localhost!', 'error')
+      return
+    }
+
+    // Check camera API support
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      addLog('❌ Camera API not supported in this browser', 'error')
+      return
+    }
+    
+    addLog('✅ Camera API supported', 'success')
+
+    // Check camera support
+    const isSupported = await cameraService.checkCameraSupport()
+    addLog(`📹 Camera support: ${isSupported ? 'Yes' : 'No'}`, isSupported ? 'success' : 'error')
+    
+    if (!isSupported) {
+      return
+    }
+
+    // Test permission
+    addLog('🔑 Checking camera permission...', 'info')
+    const hasPermission = await cameraService.requestPermission()
+    addLog(`✅ Camera permission: ${hasPermission ? 'Granted' : 'Denied'}`, hasPermission ? 'success' : 'error')
+    
+    if (!hasPermission) {
+      addLog('💡 Please allow camera access in browser settings', 'info')
+      return
+    }
+
+    // Test camera start
+    addLog('🎬 Starting camera...', 'info')
+    const stream = await cameraService.startCamera()
+    addLog('✅ Camera started successfully!', 'success')
+    addLog(`📊 Video tracks: ${stream.getVideoTracks().length}`, 'info')
+    
+    // Stop camera after test
+    setTimeout(() => {
+      cameraService.stopCamera()
+      addLog('🛑 Camera stopped', 'info')
+    }, 2000)
+    
+  } catch (error: any) {
+    addLog(`❌ Camera test failed: ${error.message}`, 'error')
+    
+    // Provide specific solutions
+    if (error.message.includes('Permission denied') || error.message.includes('NotAllowedError')) {
+      addLog('💡 Solution: Click the camera icon in browser address bar and allow camera access', 'info')
+    } else if (error.message.includes('HTTPS')) {
+      addLog('💡 Solution: Camera only works on HTTPS sites or localhost', 'info')
+    } else if (error.message.includes('NotFoundError')) {
+      addLog('💡 Solution: Make sure a camera is connected to your device', 'info')
+    }
   }
   
   testing.value = false

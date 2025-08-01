@@ -312,6 +312,19 @@ async function startPresensiProcess() {
 async function startCamera() {
   try {
     console.log('Requesting camera access...')
+    
+    // Check camera support first
+    const isSupported = await cameraService.checkCameraSupport()
+    if (!isSupported) {
+      throw new Error('Kamera tidak didukung pada browser/device ini')
+    }
+
+    // Request permission first
+    const hasPermission = await cameraService.requestPermission()
+    if (!hasPermission) {
+      throw new Error('Izin kamera ditolak. Mohon berikan izin akses kamera.')
+    }
+
     stream = await cameraService.startCamera()
     console.log('Camera stream obtained:', stream)
 
