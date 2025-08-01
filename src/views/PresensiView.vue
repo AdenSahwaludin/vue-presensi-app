@@ -131,13 +131,27 @@
             {{ cameraMode === 'checkin' ? 'Check In' : 'Check Out' }}
           </h3>
 
-          <div class="mb-4">
+          <div class="mb-4 relative">
             <video
               ref="videoRef"
               autoplay
               muted
+              playsinline
               class="w-full h-64 bg-gray-100 rounded-lg object-cover"
+              @loadedmetadata="onVideoLoaded"
+              @error="onVideoError"
             ></video>
+            
+            <!-- Video loading indicator -->
+            <div 
+              v-if="!isVideoReady" 
+              class="absolute inset-0 flex items-center justify-center bg-gray-100 rounded-lg"
+            >
+              <div class="text-center">
+                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
+                <p class="text-sm text-gray-600">Loading camera...</p>
+              </div>
+            </div>
           </div>
 
           <div v-if="locationError" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
@@ -212,6 +226,7 @@ const cameraMode = ref<'checkin' | 'checkout'>('checkin')
 const videoRef = ref<HTMLVideoElement>()
 const isProcessing = ref(false)
 const isCapturing = ref(false)
+const isVideoReady = ref(false)
 const currentLocation = ref<LocationData>()
 const locationError = ref('')
 
@@ -268,16 +283,16 @@ async function handleCheckOut() {
 }
 
 async function startPresensiProcess() {
+  console.log('🚀 [PresensiView] Starting presensi process...', cameraMode.value)
   isProcessing.value = true
   locationError.value = ''
+  isVideoReady.value = false
 
   try {
-    console.log('Starting presensi process...')
-
     // Get current location
-    console.log('Getting location...')
+    console.log('📍 [PresensiView] Getting location...')
     currentLocation.value = await locationService.getCurrentLocation()
-    console.log('Location obtained:', currentLocation.value)
+    console.log('✅ [PresensiView] Location obtained:', currentLocation.value)
 
     // Check if within office radius
     const distance = locationService.calculateDistance(
@@ -287,7 +302,7 @@ async function startPresensiProcess() {
       OFFICE_LOCATION.lng,
     )
 
-    console.log(`Distance from office: ${Math.round(distance)}m (radius: ${OFFICE_RADIUS}m)`)
+    console.log(`📏 [PresensiView] Distance from office: ${Math.round(distance)}m (radius: ${OFFICE_RADIUS}m)`)
 
     const isWithinOffice = distance <= OFFICE_RADIUS
 
@@ -298,11 +313,16 @@ async function startPresensiProcess() {
     }
 
     // Start camera
-    console.log('Starting camera...')
+    console.log('🎬 [PresensiView] Opening camera modal...')
     showCamera.value = true
+    console.log('🎬 [PresensiView] Modal state:', showCamera.value)
+    
+    // Wait a bit for modal to render
+    await new Promise(resolve => setTimeout(resolve, 200))
+    
     await startCamera()
   } catch (error) {
-    console.error('Presensi process error:', error)
+    console.error('❌ [PresensiView] Presensi process error:', error)
     locationError.value = error instanceof Error ? error.message : 'Gagal memproses presensi'
   } finally {
     isProcessing.value = false
@@ -311,32 +331,53 @@ async function startPresensiProcess() {
 
 async function startCamera() {
   try {
-    console.log('Requesting camera access...')
+    console.log('🎬 [PresensiView] Starting camera...')
     
     // Check camera support first
     const isSupported = await cameraService.checkCameraSupport()
+    console.log('📹 [PresensiView] Camera support:', isSupported)
     if (!isSupported) {
       throw new Error('Kamera tidak didukung pada browser/device ini')
     }
 
     // Request permission first
+    console.log('🔑 [PresensiView] Requesting permission...')
     const hasPermission = await cameraService.requestPermission()
+    console.log('✅ [PresensiView] Permission granted:', hasPermission)
     if (!hasPermission) {
       throw new Error('Izin kamera ditolak. Mohon berikan izin akses kamera.')
     }
 
+    console.log('🚀 [PresensiView] Starting camera service...')
     stream = await cameraService.startCamera()
-    console.log('Camera stream obtained:', stream)
+    console.log('✅ [PresensiView] Camera stream obtained:', stream)
+    console.log('📊 [PresensiView] Video tracks:', stream.getVideoTracks().length)
 
+    // Wait for video ref to be available
+    await new Promise(resolve => setTimeout(resolve, 100))
+    
     if (videoRef.value) {
-      console.log('Setting video source...')
+      console.log('📺 [PresensiView] Setting video source to element')
       videoRef.value.srcObject = stream
+      
+      // Force video to play
+      try {
+        await videoRef.value.play()
+        console.log('▶️ [PresensiView] Video playing successfully')
+      } catch (playError) {
+        console.error('❌ [PresensiView] Video play error:', playError)
+        // Try to play again after a delay
+        setTimeout(() => {
+          videoRef.value?.play().catch(e => console.error('Retry play error:', e))
+        }, 500)
+      }
     } else {
-      console.error('Video ref not available')
+      console.error('❌ [PresensiView] Video ref not available')
+      throw new Error('Video element tidak tersedia')
     }
   } catch (error) {
-    console.error('Camera error:', error)
-    locationError.value =
+    console.error('❌ [PresensiView] Camera error:', error)
+    locationError.value = error instanceof Error ? error.message : 
       'Gagal mengakses kamera. Pastikan izin kamera diberikan dan Anda menggunakan HTTPS.'
     closeCamera()
   }
@@ -417,9 +458,27 @@ async function debugCheckOut() {
 }
 
 function closeCamera() {
+  console.log('🛑 [PresensiView] Closing camera')
   showCamera.value = false
+  isVideoReady.value = false
+  locationError.value = ''
+
+  if (stream) {
+    stream.getTracks().forEach((track) => track.stop())
+    stream = null
+  }
+
   cameraService.stopCamera()
-  stream = null
+}
+
+function onVideoLoaded() {
+  console.log('📺 [PresensiView] Video metadata loaded')
+  isVideoReady.value = true
+}
+
+function onVideoError(event: Event) {
+  console.error('❌ [PresensiView] Video error:', event)
+  locationError.value = 'Error loading video stream'
 }
 
 onMounted(async () => {
