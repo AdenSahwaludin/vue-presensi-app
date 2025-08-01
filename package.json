@@ -14,7 +14,9 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "eslint . --fix",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "build:vercel": "npm run build && echo 'Build completed for Vercel'",
+    "postbuild": "echo 'Post-build: Files generated in dist folder'"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.53.0",
